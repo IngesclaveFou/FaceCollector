@@ -6,6 +6,9 @@ import ffmpeg
 import argparse
 import tempfile
 from pathlib import Path
+import random
+import time
+import os
 
 
 def main():
@@ -14,35 +17,44 @@ def main():
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as tempdir:
-        video_path = f"{tempdir}/test.mp4"
+        video_path = f"{tempdir}/video.mp4"
 
         params = {"outtmpl": video_path, "restrictfilenames": True}
 
         with youtube_dl.YoutubeDL(params) as ydl:
             ydl.download([args.url])
 
-        stream = ffmpeg.input(video_path)
-        out, _ = (
-            stream.filter("select", "gte(n,{})".format(1825))
-            .output("pipe:", vframes=1, format="image2", vcodec="mjpeg")
-            .run(capture_stdout=True)
-        )
+        ffmpeg.input(video_path, ss=random.random()).filter("fps", fps=1).output(
+            f"{tempdir}/output_%d.jpg"
+        ).run(capture_stdout=True)
 
-        image_path = f"{tempdir}/test.jpg"
+        output_dir = str(int(time.time() * 1000))
+        os.makedirs(output_dir)
 
-        with open(image_path, "wb") as file:
-            file.write(out)
+        images = [
+            file for file in Path(tempdir).iterdir() if file.is_file() and file.suffix == ".jpg"
+        ]
 
-        image = face_recognition.load_image_file(image_path)
-        face_locations = face_recognition.face_locations(image)
+        print("Images extracted:", len(images))
 
-        image = cv2.imread(image_path)
+        for i, image_path in enumerate(images):
+            image_path = str(image_path)
+            image = face_recognition.load_image_file(image_path)
+            face_locations = face_recognition.face_locations(image)
 
-        print("Faces count: {}", len(face_locations))
+            print(f"Faces count for image {i}: {len(face_locations)}")
 
-        for i, (top, right, bottom, left) in enumerate(face_locations):
-            face = image[top:bottom, left:right]
-            cv2.imwrite(f"face_{i}.jpg", face)
+            if not face_locations:
+                continue
+
+            image = cv2.imread(image_path)
+
+            for j, (top, right, bottom, left) in enumerate(face_locations):
+                extra = int(max(right - left, bottom - top) * 0.2)
+                face = image[
+                    max(0, top - extra) : bottom + extra, max(0, left - extra) : right + extra
+                ]
+                cv2.imwrite(f"{output_dir}/face_{i}_{j}.jpg", face)
 
 
 if __name__ == "__main__":
